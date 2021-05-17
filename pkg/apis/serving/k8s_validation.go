@@ -133,8 +133,12 @@ func validateVolume(volume corev1.Volume) *apis.FieldError {
 			errs = errs.Also(validateProjectedVolumeSource(proj).ViaFieldIndex("projected", i))
 		}
 	}
+	if vs.EmptyDir != nil {
+		specified = append(specified, "emptyDir")
+	}
+
 	if len(specified) == 0 {
-		errs = errs.Also(apis.ErrMissingOneOf("secret", "configMap", "projected"))
+		errs = errs.Also(apis.ErrMissingOneOf("secret", "configMap", "projected", "emptyDir"))
 	} else if len(specified) > 1 {
 		errs = errs.Also(apis.ErrMultipleOneOf(specified...))
 	}

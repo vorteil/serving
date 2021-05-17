@@ -453,6 +453,13 @@ spec:
                     required:
                       - name
                     properties:
+                      emptyDir:
+                        type: object
+                        properties:
+                          medium:
+                            type: string
+                          sizeLimit:
+                            type: string
                       configMap:
                         description: ConfigMap represents a configMap that should populate this volume
                         type: object
