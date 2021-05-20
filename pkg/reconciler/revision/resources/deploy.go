@@ -19,6 +19,7 @@ package resources
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	network "knative.dev/networking/pkg"
 	"knative.dev/pkg/kmeta"
@@ -176,11 +177,31 @@ func makeServingContainer(servingContainer corev1.Container, rev *v1.Revision) c
 // cfg can be passed as nil if not within revision reconciliation context.
 func BuildPodSpec(rev *v1.Revision, containers []corev1.Container, cfg *config.Config) *corev1.PodSpec {
 	pod := rev.Spec.PodSpec.DeepCopy()
-	pod.Containers = containers
+
+	pod.Containers = []corev1.Container{}
+	pod.InitContainers = []corev1.Container{}
+
+	for i := range containers {
+		container := &containers[i]
+
+		// direktiv sidecar is getting
+		if container.Name == "direktiv-sidecar" {
+			for a := range container.VolumeMounts {
+				vm := &container.VolumeMounts[a]
+				if strings.HasPrefix(vm.MountPath, "/mnt") {
+					vm.ReadOnly = false
+				}
+			}
+		}
+
+		pod.Containers = append(pod.Containers, *container)
+	}
+
 	pod.TerminationGracePeriodSeconds = rev.Spec.TimeoutSeconds
 	if cfg != nil && pod.EnableServiceLinks == nil {
 		pod.EnableServiceLinks = cfg.Defaults.EnableServiceLinks
 	}
+
 	return pod
 }
 
