@@ -1,4 +1,4 @@
-name: Build Container Components
+name: Direktiv Publish
 on:
   workflow_dispatch:
   create:
@@ -18,4 +18,5 @@ jobs:
         export KO_DOCKER_REPO='docker.io/vorteil'
         export KO_FLAGS="--platform=linux/amd64"
         export YAML_OUTPUT_DIR=/tmp/yamls
-        ls -la 
+        ls -la
+        hack/generate-yamls.sh . /tmp/files
