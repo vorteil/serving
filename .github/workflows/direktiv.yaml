@@ -21,6 +21,9 @@ jobs:
       with:
         version: '270.0.0'
         service_account_key: ${{ secrets.GCP_AUTH }}
+    - name: Docker auth
+      run: |
+        gcloud auth configure-docker
     - name: Check out code
       uses: actions/checkout@v2
     - name: build
