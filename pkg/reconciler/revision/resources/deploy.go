@@ -185,7 +185,8 @@ func BuildPodSpec(rev *v1.Revision, containers []corev1.Container, cfg *config.C
 		container := &containers[i]
 
 		// direktiv sidecar is getting
-		if container.Name == "direktiv-sidecar" {
+		if container.Name == "direktiv-sidecar" ||
+			container.Name == "direktiv-container" {
 			for a := range container.VolumeMounts {
 				vm := &container.VolumeMounts[a]
 				if strings.HasPrefix(vm.MountPath, "/mnt") {
