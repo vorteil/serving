@@ -32,7 +32,7 @@ jobs:
         export KO_DOCKER_REPO='gcr.io/direktiv'
         export KO_FLAGS="--platform=linux/amd64"
         export YAML_OUTPUT_DIR=/tmp/yamls
-        export TAG=0.24.0-direktiv
+        export TAG=v0.24.0-direktiv
         hack/generate-yamls.sh . /tmp/files
     - name: upload
       uses: google-github-actions/upload-cloud-storage@main
