@@ -46,7 +46,7 @@ jobs:
         credentials: ${{ secrets.GCP_BUCKET }}
         path: third_party/contour-latest/contour.yaml
         destination: direktiv_knative/yamls
-    - name: upload contour net
+    - name: upload contour
       uses: google-github-actions/upload-cloud-storage@main
       with:
         credentials: ${{ secrets.GCP_BUCKET }}
