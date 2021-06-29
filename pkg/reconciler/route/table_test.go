@@ -64,8 +64,14 @@ import (
 const testIngressClass = "ingress-class-foo"
 
 var (
-	fakeCurTime        = time.Unix(1e9, 0)
-	rolloutDurationKey = struct{}{}
+	fakeCurTime = time.Unix(1e9, 0)
+)
+
+type key int
+
+const (
+	rolloutDurationKey key = iota
+	externalSchemeKey
 )
 
 // This is heavily based on the way the OpenShift Ingress controller tests its reconciliation method.
@@ -1956,8 +1962,121 @@ func TestReconcile(t *testing.T) {
 			Eventf(corev1.EventTypeWarning, "InternalError", "failed to delete Service: inducing failure for delete services"),
 		},
 		Key: "default/my-route",
+	}, {
+		Name:    "invalid URL propagates updates route status",
+		WantErr: true,
+		WithReactors: []clientgotesting.ReactionFunc{
+			InduceFailure("delete", "services"),
+		},
+		Objects: []runtime.Object{
+			Route("default", "tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long", WithConfigTarget("config"),
+				WithAddress, WithInitRouteConditions,
+				WithRouteFinalizer,
+			),
+			cfg("default", "config",
+				WithConfigGeneration(1), WithLatestCreated("config-00001"), WithLatestReady("config-00001"),
+				// The Route controller attaches our label to this Configuration.
+				WithConfigLabel("serving.knative.dev/route", "steady-state"),
+			),
+			rev("default", "config", 1, MarkRevisionReady, WithRevName("config-00001")),
+			simpleK8sService(Route("default", "my-route", WithConfigTarget("config"))),
+		},
+		WantEvents: []string{
+			Eventf(corev1.EventTypeWarning, "UpdateFailed Failed to update status for \"tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long\": not a DNS 1035 label: [must be no more than 63 characters]:", "metadata.name"),
+		},
+		WantStatusUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: Route("default", "tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long",
+				WithConfigTarget("config"), WithRouteObservedGeneration,
+				WithRouteFinalizer, WithInitRouteConditions,
+				MarkUnknownTrafficError(`invalid domain name "tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long.default.example.com": url: Invalid value: "tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long": must be no more than 63 characters`),
+				WithHost("tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long.default.svc.cluster.local"),
+			),
+		}},
+		Key: "default/tooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo-long",
+	}, {
+		Name: "overridden scheme",
+		Ctx:  context.WithValue(context.Background(), externalSchemeKey, "https"),
+		Objects: []runtime.Object{
+			Route("default", "steady-state", WithConfigTarget("config"),
+				WithHTTPSDomain, WithAddress, WithRouteConditionsAutoTLSDisabled,
+				MarkTrafficAssigned, MarkIngressReady, WithRouteGeneration(1), WithRouteObservedGeneration,
+				WithRouteFinalizer, WithStatusTraffic(
+					v1.TrafficTarget{
+						RevisionName:   "config-00001",
+						Percent:        ptr.Int64(100),
+						LatestRevision: ptr.Bool(true),
+					})),
+			cfg("default", "config",
+				WithConfigGeneration(1), WithLatestCreated("config-00001"), WithLatestReady("config-00001"),
+				// The Route controller attaches our label to this Configuration.
+				WithConfigLabel("serving.knative.dev/route", "steady-state"),
+			),
+			rev("default", "config", 1, MarkRevisionReady, WithRevName("config-00001")),
+			simpleIngress(
+				Route("default", "steady-state", WithConfigTarget("config"), WithURL),
+				&traffic.Config{
+					Targets: map[string]traffic.RevisionTargets{
+						traffic.DefaultTarget: {{
+							TrafficTarget: v1.TrafficTarget{
+								ConfigurationName: "config",
+								LatestRevision:    ptr.Bool(true),
+								RevisionName:      "config-00001",
+								Percent:           ptr.Int64(100),
+							},
+						}},
+					},
+				},
+				withReadyIngress,
+			),
+			simpleK8sService(Route("default", "steady-state", WithConfigTarget("config")),
+				WithExternalName(pkgnet.GetServiceHostname("private-istio-ingressgateway", "istio-system"))),
+		},
+		Key: "default/steady-state",
+	}, {
+		Name: "overridden scheme (cluster-local)",
+		Ctx:  context.WithValue(context.Background(), externalSchemeKey, "https"),
+		Objects: []runtime.Object{
+			Route("default", "steady-state", WithConfigTarget("config"),
+				WithRouteLabel(map[string]string{network.VisibilityLabelKey: serving.VisibilityClusterLocal}),
+				WithLocalDomain, WithAddress, WithRouteConditionsAutoTLSDisabled,
+				MarkTrafficAssigned, MarkIngressReady, WithRouteGeneration(1), WithRouteObservedGeneration,
+				WithRouteFinalizer, WithStatusTraffic(
+					v1.TrafficTarget{
+						RevisionName:   "config-00001",
+						Percent:        ptr.Int64(100),
+						LatestRevision: ptr.Bool(true),
+					})),
+			cfg("default", "config",
+				WithConfigGeneration(1), WithLatestCreated("config-00001"), WithLatestReady("config-00001"),
+				// The Route controller attaches our label to this Configuration.
+				WithConfigLabel("serving.knative.dev/route", "steady-state"),
+			),
+			rev("default", "config", 1, MarkRevisionReady, WithRevName("config-00001")),
+			simpleIngress(
+				Route("default", "steady-state", WithConfigTarget("config"),
+					WithRouteLabel(map[string]string{network.VisibilityLabelKey: serving.VisibilityClusterLocal})),
+				&traffic.Config{
+					Targets: map[string]traffic.RevisionTargets{
+						traffic.DefaultTarget: {{
+							TrafficTarget: v1.TrafficTarget{
+								ConfigurationName: "config",
+								LatestRevision:    ptr.Bool(true),
+								RevisionName:      "config-00001",
+								Percent:           ptr.Int64(100),
+							},
+						}},
+					},
+					Visibility: map[string]netv1alpha1.IngressVisibility{
+						traffic.DefaultTarget: netv1alpha1.IngressVisibilityClusterLocal,
+					},
+				},
+				withReadyIngress,
+			),
+			simpleK8sService(Route("default", "steady-state", WithConfigTarget("config")),
+				WithExternalName(pkgnet.GetServiceHostname("private-istio-ingressgateway", "istio-system"))),
+		},
+		Key: "default/steady-state",
 	}}
-
 	// TODO(mattmoor): Revision inactive (direct reference)
 	// TODO(mattmoor): Revision inactive (indirect reference)
 	// TODO(mattmoor): Multiple inactive Revisions
@@ -1979,6 +2098,9 @@ func TestReconcile(t *testing.T) {
 		cfg := reconcilerTestConfig(false)
 		if v := ctx.Value(rolloutDurationKey); v != nil {
 			cfg.Network.RolloutDurationSecs = v.(int)
+		}
+		if v := ctx.Value(externalSchemeKey); v != nil {
+			cfg.Network.DefaultExternalScheme = v.(string)
 		}
 
 		return routereconciler.NewReconciler(ctx, logging.FromContext(ctx), servingclient.Get(ctx),
@@ -2705,6 +2827,7 @@ func reconcilerTestConfig(enableAutoTLS bool) *config.Config {
 			DomainTemplate:          network.DefaultDomainTemplate,
 			TagTemplate:             network.DefaultTagTemplate,
 			HTTPProtocol:            network.HTTPEnabled,
+			DefaultExternalScheme:   "http",
 		},
 		Features: &cfgmap.Features{
 			MultiContainer:        cfgmap.Disabled,
