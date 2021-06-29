@@ -130,6 +130,9 @@ func (c *Reconciler) ReconcileKind(ctx context.Context, r *v1.Route) pkgreconcil
 	// Configure traffic based on the RouteSpec.
 	traffic, err := c.configureTraffic(ctx, r)
 	if traffic == nil || err != nil {
+		if err != nil {
+			r.Status.MarkUnknownTrafficError(err.Error())
+		}
 		// Traffic targets aren't ready, no need to configure child resources.
 		return err
 	}
@@ -256,6 +259,8 @@ func (c *Reconciler) tls(ctx context.Context, host string, r *v1.Route, traffic 
 			acmeChallenges = append(acmeChallenges, cert.Status.HTTP01Challenges...)
 			r.Status.MarkCertificateNotReady(cert.Name)
 			// When httpProtocol is enabled, downgrade http scheme.
+			// Explicitly not using the override settings here as to not to muck with
+			// AutoTLS semantics.
 			if config.FromContext(ctx).Network.HTTPProtocol == network.HTTPEnabled {
 				if dnsNames.Has(host) {
 					r.Status.URL = &apis.URL{
@@ -330,7 +335,6 @@ func (c *Reconciler) configureTraffic(ctx context.Context, r *v1.Route) (*traffi
 	if trafficErr != nil && !isTargetError {
 		// An error that's not due to missing traffic target should
 		// make us fail fast.
-		r.Status.MarkUnknownTrafficError(trafficErr.Error())
 		return nil, trafficErr
 	}
 	if badTarget != nil && isTargetError {
@@ -365,8 +369,12 @@ func (c *Reconciler) updateRouteStatusURL(ctx context.Context, route *v1.Route, 
 		return err
 	}
 
+	scheme := "http"
+	if !isClusterLocal {
+		scheme = config.FromContext(ctx).Network.DefaultExternalScheme
+	}
 	route.Status.URL = &apis.URL{
-		Scheme: "http",
+		Scheme: scheme,
 		Host:   host,
 	}
 
@@ -405,7 +413,7 @@ func objectRef(a accessor) tracker.Reference {
 }
 
 func getTrafficNames(targets map[string]traffic.RevisionTargets) []string {
-	names := []string{}
+	names := make([]string, 0, len(targets))
 	for name := range targets {
 		names = append(names, name)
 	}

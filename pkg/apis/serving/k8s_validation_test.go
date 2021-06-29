@@ -90,6 +90,13 @@ func withPodSpecSecurityContextEnabled() configOption {
 	}
 }
 
+func withContainerSpecAddCapabilitiesEnabled() configOption {
+	return func(cfg *config.Config) *config.Config {
+		cfg.Features.ContainerSpecAddCapabilities = config.Enabled
+		return cfg
+	}
+}
+
 func TestPodSpecValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1297,6 +1304,18 @@ func TestContainerValidation(t *testing.T) {
 		},
 		want: apis.ErrDisallowedFields("securityContext.capabilities.add"),
 	}, {
+		name: "allowed to add a security context capability when gate is enabled",
+		c: corev1.Container{
+			Image: "foo",
+			SecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{
+					Add: []corev1.Capability{"all"},
+				},
+			},
+		},
+		cfgOpts: []configOption{withContainerSpecAddCapabilitiesEnabled()},
+		want:    nil,
+	}, {
 		name: "too large uid",
 		c: corev1.Container{
 			Image: "foo",
@@ -1815,7 +1834,7 @@ func TestObjectReferenceValidation(t *testing.T) {
 			Kind:       "Bar",
 			Name:       "bad name",
 		},
-		want: apis.ErrInvalidValue("a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?')", "name"),
+		want: apis.ErrInvalidValue("a lowercase RFC 1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?')", "name"),
 	}, {
 		name: "disallowed fields",
 		r: &corev1.ObjectReference{
